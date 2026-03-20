@@ -63,72 +63,88 @@ def extract_video_id(url):
 def get_full_transcript_with_fallback(video_id, use_cookies=False):
     """
     Get full video transcript with multiple fallback strategies
-    
-    Strategy 1: Try direct API call (no auth)
-    Strategy 2: Try with cookies if enabled
-    Strategy 3: Try with different languages
     """
-    
-    # Strategy 1: Direct API call (works ~70% of time)
+
+    # ✅ NEW: create instance (fix for your error)
+    ytt = YouTubeTranscriptApi()
+
+    # Strategy 1: Direct API call
     try:
         st.info("🔄 Attempting transcript fetch (Method 1: Direct API)...")
-        transcript_list = YouTubeTranscriptApi.get_transcript(video_id)
+
+        fetched = ytt.fetch(video_id)
+
+        transcript_list = (
+            fetched.to_raw_data() if hasattr(fetched, "to_raw_data") else list(fetched)
+        )
+
         full_text = " ".join([item['text'] for item in transcript_list])
         return full_text, len(full_text), "direct_api"
-    
+
     except RequestBlocked:
         st.warning("⚠️ Method 1 failed (IP blocked). Trying fallback methods...")
-    
+
     except (TranscriptsDisabled, NoTranscriptFound):
         raise Exception("This video has no transcript available (captions disabled)")
-    
-    # Strategy 2: Try with cookies (if file exists)
+
+    # Strategy 2: Cookies
     if use_cookies and os.path.exists('youtube_cookies.txt'):
         try:
             st.info("🔄 Attempting with cookies (Method 2)...")
+
             import http.cookiejar
             import requests
-            
+
             session = requests.Session()
             cj = http.cookiejar.MozillaCookieJar('youtube_cookies.txt')
             cj.load(ignore_discard=True, ignore_expires=True)
             session.cookies = cj
-            
+
             ytt = YouTubeTranscriptApi(http_client=session)
+
             fetched = ytt.fetch(video_id)
-            transcript_list = fetched.to_raw_data() if hasattr(fetched, "to_raw_data") else list(fetched)
+
+            transcript_list = (
+                fetched.to_raw_data() if hasattr(fetched, "to_raw_data") else list(fetched)
+            )
+
             full_text = " ".join([item['text'] for item in transcript_list])
             return full_text, len(full_text), "cookies"
-        
+
         except Exception as e:
             st.warning(f"⚠️ Method 2 failed: {str(e)}")
-    
-    # Strategy 3: Try auto-generated transcript in different languages
+
+    # Strategy 3: Try available transcripts
     try:
-        st.info("🔄 Trying auto-generated transcripts (Method 3)...")
-        transcript_list_obj = YouTubeTranscriptApi.list_transcripts(video_id)
-        
-        # Try to get any available transcript
+        st.info("🔄 Trying available transcripts (Method 3)...")
+
+        transcript_list_obj = ytt.list(video_id)
+
         for transcript in transcript_list_obj:
             try:
-                transcript_data = transcript.fetch()
+                fetched = transcript.fetch()
+
+                transcript_data = (
+                    fetched.to_raw_data() if hasattr(fetched, "to_raw_data") else list(fetched)
+                )
+
                 full_text = " ".join([item['text'] for item in transcript_data])
                 return full_text, len(full_text), "auto_generated"
-            except:
+
+            except Exception:
                 continue
-    
+
     except Exception as e:
         st.warning(f"⚠️ Method 3 failed: {str(e)}")
-    
-    # If all methods fail
-    raise RequestBlocked(
-        "All transcript fetch methods failed. Possible solutions:\n"
-        "1. Try a different video from the same channel\n"
-        "2. Add youtube_cookies.txt file (export from browser)\n"
-        "3. Use a VPN or proxy to change your IP\n"
-        "4. Wait 10-15 minutes and try again (temporary IP ban)"
-    )
 
+    # Final failure
+    raise RequestBlocked(
+        "All transcript fetch methods failed.\n"
+        "1. Try another video\n"
+        "2. Use cookies\n"
+        "3. Use VPN\n"
+        "4. Wait 10-15 mins"
+    )
 def analyze_with_improved_claude(transcript, video_count=1):
     """
     Enhanced Claude prompt for better pitch quality
